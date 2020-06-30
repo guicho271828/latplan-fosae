@@ -33,8 +33,8 @@ setattr(keras.optimizers,"adabound", AdaBound)
 
 # default values
 default_parameters = {
-    'epoch'           : 200,
-    'batch_size'      : 500,
+    'epoch'           : 1000,
+    'batch_size'      : 1000,
     'optimizer'       : "radam",
     'max_temperature' : 5.0,
     'min_temperature' : 0.7,

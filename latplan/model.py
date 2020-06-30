@@ -1031,6 +1031,495 @@ class TransitionAE(ConvolutionalEncoderMixin, StateAE):
         return
 
 
+
+# First Order State AE #############################################################
+
+class FirstOrderSAE(ZeroSuppressMixin, EarlyStopMixin, StateAE):
+    # encode each object vector into an embedding
+    def _preencoder(self,input_shape):
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+        if ("preencoder_layers" in self.parameters) and (self.parameters["preencoder_layers"] > 0):
+            return [
+                    *[
+                      Convolution1D(self.parameters["layer"], 1, activation="relu")
+                      for _ in range(self.parameters["preencoder_layers"]-1)
+                      ],
+                    Convolution1D(self.parameters["preencoder_dimention"], 1, activation="sigmoid", activity_regularizer=keras.regularizers.l1(self.parameters["preencoder_l1"])),
+                    ]
+        else:
+            return []
+
+    # decode each object vector into an embedding
+    def _predecoder(self,input_shape):
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+        if ("preencoder_layers" in self.parameters) and (self.parameters["preencoder_layers"] > 0):
+            return [
+                    *[
+                      Convolution1D(self.parameters["layer"], 1, activation="relu")
+                      for _ in range(self.parameters["preencoder_layers"]-1)
+                      ],
+                    Convolution1D(num_features, 1),
+                    self.obj_activation(input_shape),
+                    ]
+        else:
+            return [self.obj_activation(input_shape)]
+
+    def _to_attention(self,input_shape):
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+        return Sequential([
+            flatten,
+            Dense(self.parameters["layer"], activation="relu"),
+            Dropout(self.parameters["dropout"]),
+            Dense(self.parameters["U"] *
+                  self.parameters["A"] *
+                  num_objs),
+            self.build_gs(N=self.parameters["U"] * self.parameters["A"], M=num_objs),
+            Reshape((self.parameters["U"],
+                     self.parameters["A"],
+                     num_objs))])
+
+    def _to_predicates(self,input_shape):
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+
+        return Sequential([
+            Reshape((self.parameters["U"], self.parameters["A"]*self.parameters["preencoder_dimention"])),
+            # filter size 1: no interactions
+            # regularizer: improve interpretability (look at fewer features)
+            # Convolution1D(self.parameters["layer"], 1, activation="relu",),
+            # Dropout(self.parameters["dropout"]),
+            Convolution1D(self.parameters["P"] * 2, 1, ), # kernel_regularizer=keras.regularizers.l1(0.005)
+            self.build_gs(N=self.parameters["U"] * self.parameters["P"], M=2),
+            take_true(),
+        ])
+
+    def build_encoder(self,input_shape):
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+        # object vectors: [batch, |objects|, |features|]
+        # each feature takes a value between 0 and 1
+
+        # Necessary for shape matching when we don't use pre-encoder (e.g. preencoder_layer = 0)
+        if ("preencoder_layers" in self.parameters) and (self.parameters["preencoder_layers"] > 0):
+            pass
+        else:
+            self.parameters["preencoder_dimention"] = num_features
+
+        self.preencoder_array   = self._preencoder(input_shape)
+        self.predecoder_array   = self._predecoder(input_shape)
+        self.preencoder   = Sequential(self.preencoder_array)
+        self.predecoder   = Sequential(self.predecoder_array)
+
+        self.extract_args = Lambda(lambda args: tf.einsum("buao,bof->buaf", args[0], args[1]), name="extract_args")
+
+        self.to_attention  = self._to_attention(input_shape)
+        self.to_predicates = self._to_predicates(input_shape)
+
+        def preencoder_misc(x):
+            # record the mean L1 activity of the object embedding
+            def preencoder_l1(*args):
+                return K.mean(x)
+            self.metrics.append(preencoder_l1)
+            # save the object embedding for the object decoder training
+            if not hasattr(self,"pre"):
+                self.pre = x
+            return x
+
+        # main flow
+        def to_args(o_enc):
+            attention  = self.to_attention(o_enc)
+            args_enc   = self.extract_args([attention, o_enc])
+            return args_enc
+
+        return [
+            self.preencoder,
+            preencoder_misc,
+            to_args,
+            self.to_predicates,
+        ]
+
+    def build_decoder(self, input_shape):
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+
+        def add_embedding_loss(x):
+            layer = Lambda(lambda x: x) 
+            layer.add_loss(K.mean(K.binary_crossentropy(self.pre, x)))
+            return layer(x)
+
+        return \
+            [Dense(self.parameters["layer"], activation="relu", use_bias=False),
+             BN(),
+             Dropout(self.parameters["dropout"]),
+             Dense(num_objs * self.parameters["preencoder_dimention"], activation="sigmoid"),
+             Reshape((num_objs, self.parameters["preencoder_dimention"])),
+             add_embedding_loss,
+             self.predecoder,
+            ]
+
+
+    def _build(self, input_shape):
+        super()._build(input_shape)
+        self.loss = eval(self.parameters["loss"])
+        self.metrics.append(eval(self.parameters["loss"]))
+        self.metrics.append(eval(self.parameters["eval"]))
+        
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+        print ("begin visualization")
+        o          = Input(shape=input_shape, name="visualization_input")
+        o_enc      = self.preencoder(o)
+        attention  = self.to_attention(o_enc)
+        args_enc   = self.extract_args([attention, o_enc])
+        args_enc   = Reshape((self.parameters["U"]*self.parameters["A"], self.parameters["preencoder_dimention"]))(args_enc)
+        args       = self.predecoder(args_enc)
+        args       = Reshape((self.parameters["U"], self.parameters["A"], num_features))(args)
+        self.args_encoder      = Model(o, args)
+        self.attention_encoder = Model(o, attention)
+        print ("end visualization")
+
+    def obj_activation(self,input_shape):
+        return eval(self.parameters["activation"])(input_shape)
+
+    def puzzle_activation(self,input_shape):
+        def obj_activation(x):
+            xshape = K.shape(x) # [batch, body, features]
+            predicates_logit = x[:,:,:9]
+            arguments_logit  = K.reshape(x[:,:,9:15], (xshape[0],xshape[1],2,3))
+
+            predicates       = rounded_softmax()(predicates_logit)
+            arguments        = rounded_softmax()(arguments_logit)
+            result           = K.concatenate((predicates,
+                                              K.reshape(arguments,(xshape[0],xshape[1],6,))),
+                                             axis = -1)
+            return wrap(x,result,name="obj_activation")
+        return obj_activation
+
+    def blocks_activation(self,input_shape):
+        data_dim = np.prod(input_shape)
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+        Y = self.parameters["picsize_grid"][0]
+        X = self.parameters["picsize_grid"][1]
+        img_features = num_features - 2*X - 2*Y
+        def obj_activation(x):
+            img = K.sigmoid(x[:,:,:img_features])
+            bbox = x[:,:,img_features:]
+            x1= rounded_softmax()(bbox[:,:,     :X])
+            y1= rounded_softmax()(bbox[:,:,X    :X+Y])
+            x2= rounded_softmax()(bbox[:,:,X+Y  :X+Y+X])
+            y2= rounded_softmax()(bbox[:,:,X+Y+X:X+Y+X+Y])
+            result           = K.concatenate((img,x1,y1,x2,y2,),
+                                             axis = -1)
+            return wrap(x,result,name="obj_activation")
+        return obj_activation
+
+    def encode_attention(self,data,**kwargs):
+        return self.attention_encoder.predict(data,**kwargs)
+
+    def encode_args(self,data,**kwargs):
+        return self.args_encoder.predict(data,**kwargs)
+
+    def plot(self,data,path,verbose=False):
+        self.load()
+        x = data                     # bof
+        a = self.encode_attention(x) # bnao
+        g = self.encode_args(x)      # bnaf
+        b = self.encode(x)
+        y = self.autoencode(x)
+
+        x_sorted = sort_binary(x)
+        y_sorted = sort_binary(y)
+
+        dy = ( y_sorted - x_sorted + 1)/2
+
+        _a = a.transpose(1,0,3,2) # nboa -- just for plotting purpose
+        _g = g.transpose(1,0,2,3) # nbaf
+
+        _ag = []
+        for __ag in zip(_a,_g): # nboa, nbaf
+            _ag.extend(__ag)    # [boa, baf] is added to the last
+
+        _b = b.reshape((-1,
+                        self.parameters["U"],
+                        self.parameters["P"])).transpose(0,2,1) # bnp -> bpn
+
+        images = []
+        for seq in zip(x, *_ag, _b, x, y, x_sorted, y_sorted, dy):
+            images.extend(seq)
+        from .util.plot import plot_grid
+        plot_grid(images, w=7+len(_ag), path=path, verbose=verbose)
+
+    def blocks_renderer(self):
+        picsize = np.array(self.parameters["picsize"])
+        picsize_grid = (picsize / 5).round().astype(np.int32)
+        Y = picsize_grid[0]         # mind the axes!
+        X = picsize_grid[1]
+        # print("grid size [Y,X]=",[Y,X])
+
+        def get_size(x):
+            patch_dim = x.shape[2] - 2*X - 2*Y
+            # print("patch_dim",patch_dim)
+            import math
+            patch_size = int(math.sqrt(patch_dim / 3))
+            # print("patch_size",patch_size,15)
+            return patch_dim, patch_size
+
+        def render(states):
+            patch_dim, patch_size = get_size(states)
+            images = states[:,:,:patch_dim]
+            s = images.shape
+            images = images.reshape((s[0],s[1],patch_size,patch_size,3))
+            bboxes_onehot_raw = states[:,:,patch_dim:]
+            def prob_to_onehot(x):
+                argmax = np.argmax(x,axis=-1)
+                return np.eye(x.shape[-1])[argmax]
+
+            x1o = prob_to_onehot(bboxes_onehot_raw[:,:,:X])
+            y1o = prob_to_onehot(bboxes_onehot_raw[:,:,X:X+Y])
+            x2o = prob_to_onehot(bboxes_onehot_raw[:,:,X+Y:X+Y+X])
+            y2o = prob_to_onehot(bboxes_onehot_raw[:,:,X+Y+X:])
+            x1 = np.einsum("box,x->bo",x1o,np.arange(X)).astype(int)*5
+            y1 = np.einsum("boy,y->bo",y1o,np.arange(Y)).astype(int)*5
+            x2 = np.einsum("box,x->bo",x2o,np.arange(X)).astype(int)*5
+            y2 = np.einsum("boy,y->bo",y2o,np.arange(Y)).astype(int)*5
+
+            bboxes = np.stack((x1,y1,x2,y2),axis=-1)
+
+            from skimage.transform import resize
+
+            canvas = np.zeros((s[0],)+tuple(picsize)) # black canvas
+            # print("canvas size",canvas.shape)
+            for batch, (_images,_bboxes) in enumerate(zip(images,bboxes)):
+                for image, bbox in zip(_images,_bboxes):
+                    x1, y1, x2, y2 = bbox
+                    x2 = max(x1+5,x2)
+                    y2 = max(y1+5,y2)
+                    # print(bbox,"->",[x1, y1, x2, y2])
+                    canvas[batch,y1:y2,x1:x2] = resize(image,(y2-y1,x2-x1,3),preserve_range=True)
+            return canvas
+        def render_each(states):
+            patch_dim, patch_size = get_size(states)
+            images = states[:,:,:patch_dim]
+            return images.reshape((-1,patch_size,patch_size,3))
+
+        return render, render_each
+
+    def puzzle_renderer(self):
+
+        from latplan.puzzles.puzzle_mnist import setting
+        from latplan.puzzles.model.puzzle import load
+        load(3,3)
+        panels = setting["panels"]
+        base = setting["base"]
+
+        def render(states):
+            s = states.shape
+            def prob_to_onehot(x):
+                argmax = np.argmax(x,axis=-1)
+                return np.eye(x.shape[-1])[argmax]
+            labelo = prob_to_onehot(states[:,:,:9])
+            xo     = prob_to_onehot(states[:,:,9:12])
+            yo     = prob_to_onehot(states[:,:,12:15])
+            labels = np.einsum("box,x->bo",labelo,np.arange(9)).astype(int)
+            xs     = np.einsum("box,x->bo",xo,np.arange(3)).astype(int)
+            ys     = np.einsum("box,x->bo",yo,np.arange(3)).astype(int)
+
+            canvas = np.zeros((s[0],base*3,base*3,max(s[1],3))) # black canvas
+            for batch, (_labels, _xs, _ys) in enumerate(zip(labels,xs,ys)):
+                for c, (label, x, y) in enumerate(zip(_labels, _xs, _ys)):
+                    canvas[batch, y*base:(y+1)*base, x*base:(x+1)*base, c] = panels[label]
+            if s[1] > 3:
+                canvas = np.sum(canvas, axis=-1)
+
+            return canvas
+
+        return render, None
+
+    def plot_render(self,data,path,verbose=False,reconstruction=True,mode="puzzle"):
+        self.load()
+        x = data
+        b = self.encode(x)
+        y = self.autoencode(x)
+
+        if mode is "puzzle":
+            render, render_each = self.puzzle_renderer()
+        else:
+            render, render_each = self.blocks_renderer()
+
+        x_rendered = render(x)
+        y_rendered = render(y)
+
+        diff = ( y_rendered - x_rendered + 1)/2
+
+        images = []
+        for seq in zip(x_rendered, y_rendered, diff):
+            images.extend(seq)
+        from .util.plot import plot_grid
+        plot_grid(images, w=3, path=path, verbose=verbose)
+
+        for i, (x_ren, y_ren) in enumerate(zip(x_rendered, y_rendered)):
+            import imageio
+            import os.path
+            imageio.imwrite(os.path.splitext(path)[0]+"_{}x.png".format(i),x_ren)
+            if reconstruction:
+                imageio.imwrite(os.path.splitext(path)[0]+"_{}y.png".format(i),y_ren)
+
+        if render_each is None:
+            return
+
+        x_rendered = render_each(x)
+        y_rendered = render_each(y)
+        diff = ( y_rendered - x_rendered + 1)/2
+
+        images = []
+        for seq in zip(x_rendered, y_rendered, diff):
+            images.extend(seq)
+        import os.path
+        from .util.plot import plot_grid
+        plot_grid(images, w=3, path=os.path.splitext(path)[0]+"_each.png", verbose=verbose)
+        return
+
+    def plot_pos_neg(self,data,path,verbose=False,examples=10,mode="puzzle"):
+        self.load()
+        if mode is "puzzle":
+            render, _ = self.puzzle_renderer()
+        else:
+            render, _ = self.blocks_renderer()
+
+        input_shape  = data.shape[1:]
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+
+        x = data                     # bof
+        g = self.encode_args(x)      # bnaf
+        # print(g.shape)
+        sample_render = render(g[:1].reshape((self.parameters["U"], self.parameters["A"], num_features))[:1,...])
+        # print(sample_render.shape)
+        g = g.reshape((x.shape[0]*self.parameters["U"], -1)) # (bn)(af)
+        b = self.encode(x)                                             \
+                .reshape((-1, self.parameters["P"]))          \
+                .transpose((1,0))                                      \
+                .round()                                               \
+                .astype(np.uint64)                                     # p(bn)
+
+        # print(x.shape, g.shape, b.shape)
+
+        trues = []
+        falses = []
+        for p, _b in enumerate(b):
+            # _b: (bn)
+
+            from numpy.random import shuffle
+
+            canvas = np.ones((examples+1, *sample_render.shape[1:])) # +1 makes a separator
+            true = g[_b.nonzero()]
+
+            if len(true) == 0:
+                continue
+            shuffle(true)
+            true = true.reshape((-1, self.parameters["A"], num_features))[:examples]
+            canvas[:len(true), ...] = render(true)
+            trues.append(canvas)
+
+            canvas = np.ones((examples, *sample_render.shape[1:]))
+            false = g[_b==0]
+            shuffle(false)
+            false = false.reshape((-1, self.parameters["A"], num_features))[:examples]
+            canvas[:len(false), ...] = render(false)
+            falses.append(canvas)
+
+        images = []
+        for (truepic, falsepic) in zip(trues,falses): # pexyc
+            # exyc
+            images.extend(truepic) # xyc
+            images.extend(falsepic)
+        from .util.plot import plot_grid
+        plot_grid(images, w=2*examples+1, path=path, verbose=verbose)
+        return
+
+    def plot_pn_decisiontree(self,data,name,verbose=False,mode="puzzle"):
+        if mode is not "puzzle":
+            return
+
+        self.load()
+        x = data                                          # bof
+        g = self.encode_args(x)
+        b = self.encode(x)                                             \
+                .reshape((-1, self.parameters["P"]))                   \
+                .transpose((1,0))                                      \
+                .round()                                               \
+                .astype(np.uint64)                                     # p(bn) 
+
+                #                                 \
+                # .reshape((-1, self.parameters["A"]*data.shape[2])) # (bn)(af)
+
+        label = g[..., :9].argmax(axis=-1)
+        x     = g[..., 9:12].argmax(axis=-1)
+        y     = g[..., 12:15].argmax(axis=-1)
+
+        g2    = np.stack([label,x,y],axis=-1).reshape((-1,self.parameters["A"]*3))
+
+        for pn, _b in enumerate(b):
+            print("converting PN {} into a decision tree".format(pn))
+            from sklearn import tree
+            clf = tree.DecisionTreeClassifier()
+            clf = clf.fit(g2, _b)
+            import graphviz
+            dot_data = tree.export_graphviz(clf, out_file=None,
+                                            filled=True,
+                                            feature_names=["a={},f={}".format(a,f)
+                                                           for a in range(self.parameters["A"])
+                                                           for f in range(3)],)
+            graph = graphviz.Source(dot_data)
+            graph.render("{}_{}".format(name,pn)) # .pdf
+
+    def report(self,train_data,
+               test_data=None,
+               train_data_to=None,
+               test_data_to=None,
+               batch_size=1000,
+               **kwargs):
+        test_data     = train_data if test_data is None else test_data
+        train_data_to = train_data if train_data_to is None else train_data_to
+        test_data_to  = test_data  if test_data_to is None else test_data_to
+        opts = {"verbose":0,"batch_size":batch_size}
+
+        performance = {}
+        def test_both(query, fn):
+            result = fn(train_data)
+            reg(query+["train"], result, performance)
+            print(*query,"train", result)
+            if test_data is not None:
+                result = fn(test_data)
+                reg(query+["test"], result, performance)
+                print(*query,"test", result)
+
+        self.autoencoder.compile(optimizer="adam", loss=self.eval)
+        test_both([self.eval.__name__,"ordered","vanilla"],
+                  lambda data: float(self.autoencoder.evaluate(data,data,**opts)))
+
+        from latplan.puzzles import shuffle_objects
+        test_data = shuffle_objects(test_data)
+        train_data = shuffle_objects(train_data)
+
+        test_both([self.eval.__name__,"shuffled","vanilla"],
+                  lambda data: float(self.autoencoder.evaluate(data,data,**opts)))
+
+        import json
+        with open(self.local("performance.json"), "w") as f:
+            json.dump(performance, f)
+
+        import json
+        with open(self.local("parameter_count.json"), "w") as f:
+            json.dump(count_params(self.autoencoder), f)
+
+        return self
+
+
 # Transition AE + Action AE double wielding! #################################
 
 class BaseActionMixin:
