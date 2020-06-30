@@ -66,3 +66,9 @@ By default, everything is commented out and nothing runs.
 #+end_src
 
 
+* Code detail
+
+The code is largely same as Latplan.
+The main code for FOSAE lies here:
+https://github.com/guicho271828/latplan-fosae/blob/master/latplan/model.py#L1034
+
