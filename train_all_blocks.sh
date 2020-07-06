@@ -16,13 +16,16 @@ export PYTHONUNBUFFERED=1
 
 proj=$(date +%Y%m%d%H%M)-$prefix
 common="jbsub -mem 64g -cores 1+1 -queue x86_6h -proj $proj -require v100"
-parallel $common ./strips.py learn_plot blocksworld {} \
+parallel $common ./strips.py reproduce_plot blocksworld {} \
          ::: FirstOrderSAE \
          ::: $prefix \
          ::: None \
          ::: None \
          ::: None \
-         ::: 10000 
+         ::: \
+         10000 \
+         ::: BCE5
+
 
 # ccc/watch-proj $proj && {
 #     proj=$(date +%Y%m%d%H%M)

@@ -55,7 +55,10 @@ By default, everything is commented out and nothing runs.
 ./setup-dataset.sh
 
 # This will train the FOSAE for Blocksworld with 5 objects, 3 towers.
+# It uses the best hyperparameter tuning result from the log file we stored in the repository.
+# See blocks-5-3/blocksworld_FirstOrderAE_blocks-5-3_None_None_None_10000/grid_search.log
 ./train_all_blocks.sh 5 3
+./train_all_blocks.sh 4 4
 
 # This will train it for hand-crafted 8 puzzle object vectors.
 ./train_all_puzzle.sh
