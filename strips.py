@@ -49,14 +49,14 @@ default_parameters = {
 # hyperparameter tuning
 parameters = {
     'beta'       :[-0.3,-0.1,0.0,0.1,0.3],
-    'lr'         :[0.1,0.01,0.001],
-    'U'          :[5,10,20],
+    'lr'         :[0.1,0.01,0.001,0.0001],
+    'U'          :[20,40,80],
     'A'          :[2,3,4],
     'P'          :[10,20,40,80,160,320],
-    'layer'      :[100,400,1000],
+    'layer'      :[50,100,400,1000],
     'dropout'    :[0.3,0.4,0.5],
     'noise'      :[0.1,0.2,0.4],
-    'zerosuppress'       :[0.1,0.2,0.5],
+    'zerosuppress'       :[0.0,0.05,0.1,0.2,0.5],
     'zerosuppress_delay' :[0.05,0.1,0.2,0.3,0.5],
     'preencoder_dimention':[10,25,50,100,200,400],
     'preencoder_layers':[0,1,2],
