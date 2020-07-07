@@ -72,3 +72,8 @@ The code is largely same as Latplan.
 The main code for FOSAE lies here:
 https://github.com/guicho271828/latplan-fosae/blob/master/latplan/model.py#L1034
 
+* Gallery
+
+[[./img/render_test.png]]
+
+[[./img/render_test_each.png]]
