@@ -195,7 +195,7 @@ def show_summary(ae,train,test):
 
 ################################################################
 
-def puzzle(aeclass="FirstOrderAE",type='mnist',width=3,height=3,U=None,A=None,P=None,num_examples=6500):
+def puzzle(aeclass="FirstOrderAE",type='mnist',width=3,height=3,U=None,A=None,P=None,num_examples=6500,comment=None):
     for name, value in locals().items():
         if value is not None:
             parameters[name] = [value]
@@ -248,7 +248,7 @@ def bboxes_to_onehot(bboxes,X,Y):
     del x1,y1,x2,y2,x1o,y1o,x2o,y2o
     return bboxes_onehot
 
-def blocksworld(aeclass="FirstOrderAE",track="blocks-5-3",U=None,A=None,P=None,num_examples=6500,):
+def blocksworld(aeclass="FirstOrderAE",track="blocks-5-3",U=None,A=None,P=None,num_examples=6500,comment=None):
     for name, value in locals().items():
         if value is not None:
             parameters[name] = [value]
