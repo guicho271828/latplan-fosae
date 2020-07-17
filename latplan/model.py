@@ -1068,7 +1068,9 @@ class FirstOrderSAE(ZeroSuppressMixin, EarlyStopMixin, StateAE):
                       Convolution1D(self.parameters["layer"], 1, activation="relu")
                       for _ in range(self.parameters["preencoder_layers"]-1)
                       ],
-                    Convolution1D(self.parameters["preencoder_dimention"], 1, activation="sigmoid", activity_regularizer=keras.regularizers.l1(self.parameters["preencoder_l1"])),
+                    Convolution1D(self.parameters["preencoder_dimention"], 1,
+                                  activation=self.parameters["preencoder_output_activation"][0],
+                                  activity_regularizer=keras.regularizers.l1(self.parameters["preencoder_l1"])),
                     ]
         else:
             return []
@@ -1177,15 +1179,17 @@ class FirstOrderSAE(ZeroSuppressMixin, EarlyStopMixin, StateAE):
             })
             self.callbacks.append(LambdaCallback(on_epoch_end=alpha.update))
 
-            layer = Lambda(lambda x: alpha.variable * x + (1-alpha.variable) * self.pre)
-            layer.add_loss(alpha.variable * K.mean(K.binary_crossentropy(self.pre, x)))
+            layer = Lambda(lambda x: K.in_train_phase(alpha.variable * x + (1-alpha.variable) * self.pre, x))
+            preencoder_output_loss = K.mean(eval(self.parameters["preencoder_output_activation"][1])(self.pre, x))
+            layer.add_loss(K.in_train_phase(alpha.variable * preencoder_output_loss, 0.0))
             return layer(x)
 
         return \
             [Dense(self.parameters["layer"], activation="relu", use_bias=False),
              BN(),
              Dropout(self.parameters["dropout"]),
-             Dense(num_objs * self.parameters["preencoder_dimention"], activation="sigmoid"),
+             Dense(num_objs * self.parameters["preencoder_dimention"],
+                   activation=self.parameters["preencoder_output_activation"][0]),
              Reshape((num_objs, self.parameters["preencoder_dimention"])),
              skipconnection_or_add_embedding_loss,
              self.predecoder,
