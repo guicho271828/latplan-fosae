@@ -62,6 +62,7 @@ parameters = {
     'preencoder_layers':[0,1,2],
     'preencoder_l1':[0.0, 0.00001, 0.0001, 0.001, 0.01],
     'preencoder_delay':[0.05,0.1,0.2,0.3,0.5],
+    'preencoder_output_activation':[("relu","MSE"),("linear","MSE"),("sigmoid","MSE"),("sigmoid","BCE")],
     'loss':["BCE"],
     'eval':["MSE"],
 }
