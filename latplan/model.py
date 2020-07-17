@@ -1168,9 +1168,17 @@ class FirstOrderSAE(ZeroSuppressMixin, EarlyStopMixin, StateAE):
         num_objs     = input_shape[0]
         num_features = input_shape[1]
 
-        def add_embedding_loss(x):
-            layer = Lambda(lambda x: x) 
-            layer.add_loss(K.mean(K.binary_crossentropy(self.pre, x)))
+        # skip the inner layers during the bootstrapping.
+        # after that, require the inner layers to reconstruct the embedding.
+        def skipconnection_or_add_embedding_loss(x):
+            alpha = StepSchedule(schedule={
+                0:0,
+                (self.parameters["epoch"]*self.parameters["preencoder_delay"]):1,
+            })
+            self.callbacks.append(LambdaCallback(on_epoch_end=alpha.update))
+
+            layer = Lambda(lambda x: alpha.variable * x + (1-alpha.variable) * self.pre)
+            layer.add_loss(alpha.variable * K.mean(K.binary_crossentropy(self.pre, x)))
             return layer(x)
 
         return \
@@ -1179,7 +1187,7 @@ class FirstOrderSAE(ZeroSuppressMixin, EarlyStopMixin, StateAE):
              Dropout(self.parameters["dropout"]),
              Dense(num_objs * self.parameters["preencoder_dimention"], activation="sigmoid"),
              Reshape((num_objs, self.parameters["preencoder_dimention"])),
-             add_embedding_loss,
+             skipconnection_or_add_embedding_loss,
              self.predecoder,
             ]
 
