@@ -61,6 +61,7 @@ parameters = {
     'preencoder_dimention':[10,25,50,100,200,400],
     'preencoder_layers':[0,1,2],
     'preencoder_l1':[0.0, 0.00001, 0.0001, 0.001, 0.01],
+    'preencoder_delay':[0.05,0.1,0.2,0.3,0.5],
     'loss':["BCE"],
     'eval':["MSE"],
 }
