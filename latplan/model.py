@@ -1434,7 +1434,7 @@ class FirstOrderSAEMixin:
 
 
 # ICAPS 2019.
-class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, StateAE):
+class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, ConcreteLatentMixin, StateAE):
     def _to_attention(self,input_shape):
         num_objs     = input_shape[0]
         num_features = input_shape[1]
@@ -1461,8 +1461,7 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, State
             # Convolution1D(self.parameters["layer"], 1, activation="relu",),
             # Dropout(self.parameters["dropout"]),
             Convolution1D(self.parameters["P"] * 2, 1, ), # kernel_regularizer=keras.regularizers.l1(0.005)
-            self.build_gs(N=self.parameters["U"] * self.parameters["P"], M=2),
-            take_true(),
+            self.activation(),
         ])
 
     def build_encoder(self,input_shape):
@@ -1476,6 +1475,8 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, State
             pass
         else:
             self.parameters["preencoder_dimention"] = num_features
+
+        self.parameters["N"] = self.parameters["U"] * self.parameters["P"]
 
         self.preencoder_array   = self._preencoder(input_shape)
         self.predecoder_array   = self._predecoder(input_shape)
