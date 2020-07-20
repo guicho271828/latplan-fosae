@@ -1034,7 +1034,8 @@ class TransitionAE(ConvolutionalEncoderMixin, StateAE):
 
 # First Order State AE #############################################################
 
-class FirstOrderSAE(ZeroSuppressMixin, EarlyStopMixin, StateAE):
+# Base code in FOSAE
+class FirstOrderSAEMixin:
     # encode each object vector into an embedding
     def _preencoder(self,input_shape):
         num_objs     = input_shape[0]
@@ -1068,81 +1069,6 @@ class FirstOrderSAE(ZeroSuppressMixin, EarlyStopMixin, StateAE):
         else:
             return [self.obj_activation(input_shape)]
 
-    def _to_attention(self,input_shape):
-        num_objs     = input_shape[0]
-        num_features = input_shape[1]
-        return Sequential([
-            flatten,
-            Dense(self.parameters["layer"], activation="relu"),
-            Dropout(self.parameters["dropout"]),
-            Dense(self.parameters["U"] *
-                  self.parameters["A"] *
-                  num_objs),
-            self.build_gs(N=self.parameters["U"] * self.parameters["A"], M=num_objs),
-            Reshape((self.parameters["U"],
-                     self.parameters["A"],
-                     num_objs))])
-
-    def _to_predicates(self,input_shape):
-        num_objs     = input_shape[0]
-        num_features = input_shape[1]
-
-        return Sequential([
-            Reshape((self.parameters["U"], self.parameters["A"]*self.parameters["preencoder_dimention"])),
-            # filter size 1: no interactions
-            # regularizer: improve interpretability (look at fewer features)
-            # Convolution1D(self.parameters["layer"], 1, activation="relu",),
-            # Dropout(self.parameters["dropout"]),
-            Convolution1D(self.parameters["P"] * 2, 1, ), # kernel_regularizer=keras.regularizers.l1(0.005)
-            self.build_gs(N=self.parameters["U"] * self.parameters["P"], M=2),
-            take_true(),
-        ])
-
-    def build_encoder(self,input_shape):
-        num_objs     = input_shape[0]
-        num_features = input_shape[1]
-        # object vectors: [batch, |objects|, |features|]
-        # each feature takes a value between 0 and 1
-
-        # Necessary for shape matching when we don't use pre-encoder (e.g. preencoder_layer = 0)
-        if ("preencoder_layers" in self.parameters) and (self.parameters["preencoder_layers"] > 0):
-            pass
-        else:
-            self.parameters["preencoder_dimention"] = num_features
-
-        self.preencoder_array   = self._preencoder(input_shape)
-        self.predecoder_array   = self._predecoder(input_shape)
-        self.preencoder   = Sequential(self.preencoder_array)
-        self.predecoder   = Sequential(self.predecoder_array)
-
-        self.extract_args = Lambda(lambda args: tf.einsum("buao,bof->buaf", args[0], args[1]), name="extract_args")
-
-        self.to_attention  = self._to_attention(input_shape)
-        self.to_predicates = self._to_predicates(input_shape)
-
-        def preencoder_misc(x):
-            # record the mean L1 activity of the object embedding
-            def preencoder_l1(*args):
-                return K.mean(x)
-            self.metrics.append(preencoder_l1)
-            # save the object embedding for the object decoder training
-            if not hasattr(self,"pre"):
-                self.pre = x
-            return x
-
-        # main flow
-        def to_args(o_enc):
-            attention  = self.to_attention(o_enc)
-            args_enc   = self.extract_args([attention, o_enc])
-            return args_enc
-
-        return [
-            self.preencoder,
-            preencoder_misc,
-            to_args,
-            self.to_predicates,
-        ]
-
     def build_decoder(self, input_shape):
         num_objs     = input_shape[0]
         num_features = input_shape[1]
@@ -1172,27 +1098,14 @@ class FirstOrderSAE(ZeroSuppressMixin, EarlyStopMixin, StateAE):
              self.predecoder,
             ]
 
-
     def _build(self, input_shape):
         super()._build(input_shape)
         self.loss = eval(self.parameters["loss"])
-        self.metrics.append(eval(self.parameters["loss"]))
-        self.metrics.append(eval(self.parameters["eval"]))
-        
-        num_objs     = input_shape[0]
-        num_features = input_shape[1]
-        print ("begin visualization")
-        o          = Input(shape=input_shape, name="visualization_input")
-        o_enc      = self.preencoder(o)
-        attention  = self.to_attention(o_enc)
-        args_enc   = self.extract_args([attention, o_enc])
-        args_enc   = Reshape((self.parameters["U"]*self.parameters["A"], self.parameters["preencoder_dimention"]))(args_enc)
-        args       = self.predecoder(args_enc)
-        args       = Reshape((self.parameters["U"], self.parameters["A"], num_features))(args)
-        self.args_encoder      = Model(o, args)
-        self.attention_encoder = Model(o, attention)
-        print ("end visualization")
-
+        if self.loss not in self.metrics:
+            self.metrics.append(self.loss)
+        e = eval(self.parameters["eval"])
+        if e not in self.metrics:
+            self.metrics.append(e)
     def obj_activation(self,input_shape):
         return eval(self.parameters["activation"])(input_shape)
 
@@ -1228,43 +1141,6 @@ class FirstOrderSAE(ZeroSuppressMixin, EarlyStopMixin, StateAE):
                                              axis = -1)
             return wrap(x,result,name="obj_activation")
         return obj_activation
-
-    def encode_attention(self,data,**kwargs):
-        return self.attention_encoder.predict(data,**kwargs)
-
-    def encode_args(self,data,**kwargs):
-        return self.args_encoder.predict(data,**kwargs)
-
-    def plot(self,data,path,verbose=False):
-        self.load()
-        x = data                     # bof
-        a = self.encode_attention(x) # bnao
-        g = self.encode_args(x)      # bnaf
-        b = self.encode(x)
-        y = self.autoencode(x)
-
-        x_sorted = sort_binary(x)
-        y_sorted = sort_binary(y)
-
-        dy = ( y_sorted - x_sorted + 1)/2
-
-        _a = a.transpose(1,0,3,2) # nboa -- just for plotting purpose
-        _g = g.transpose(1,0,2,3) # nbaf
-
-        _ag = []
-        for __ag in zip(_a,_g): # nboa, nbaf
-            _ag.extend(__ag)    # [boa, baf] is added to the last
-
-        _b = b.reshape((-1,
-                        self.parameters["U"],
-                        self.parameters["P"])).transpose(0,2,1) # bnp -> bpn
-
-        images = []
-        for seq in zip(x, *_ag, _b, x, y, x_sorted, y_sorted, dy):
-            images.extend(seq)
-        from .util.plot import plot_grid
-        plot_grid(images, w=7+len(_ag), path=path, verbose=verbose)
-
     def blocks_renderer(self):
         picsize = np.array(self.parameters["picsize"])
         picsize_grid = (picsize / 5).round().astype(np.int32)
@@ -1530,6 +1406,141 @@ class FirstOrderSAE(ZeroSuppressMixin, EarlyStopMixin, StateAE):
             json.dump(count_params(self.autoencoder), f)
 
         return self
+
+    pass
+
+
+# ICAPS 2019.
+class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, StateAE):
+    def _to_attention(self,input_shape):
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+        return Sequential([
+            flatten,
+            Dense(self.parameters["layer"], activation="relu"),
+            Dropout(self.parameters["dropout"]),
+            Dense(self.parameters["U"] *
+                  self.parameters["A"] *
+                  num_objs),
+            self.build_gs(N=self.parameters["U"] * self.parameters["A"], M=num_objs),
+            Reshape((self.parameters["U"],
+                     self.parameters["A"],
+                     num_objs))])
+
+    def _to_predicates(self,input_shape):
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+
+        return Sequential([
+            Reshape((self.parameters["U"], self.parameters["A"]*self.parameters["preencoder_dimention"])),
+            # filter size 1: no interactions
+            # regularizer: improve interpretability (look at fewer features)
+            # Convolution1D(self.parameters["layer"], 1, activation="relu",),
+            # Dropout(self.parameters["dropout"]),
+            Convolution1D(self.parameters["P"] * 2, 1, ), # kernel_regularizer=keras.regularizers.l1(0.005)
+            self.build_gs(N=self.parameters["U"] * self.parameters["P"], M=2),
+            take_true(),
+        ])
+
+    def build_encoder(self,input_shape):
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+        # object vectors: [batch, |objects|, |features|]
+        # each feature takes a value between 0 and 1
+
+        # Necessary for shape matching when we don't use pre-encoder (e.g. preencoder_layer = 0)
+        if ("preencoder_layers" in self.parameters) and (self.parameters["preencoder_layers"] > 0):
+            pass
+        else:
+            self.parameters["preencoder_dimention"] = num_features
+
+        self.preencoder_array   = self._preencoder(input_shape)
+        self.predecoder_array   = self._predecoder(input_shape)
+        self.preencoder   = Sequential(self.preencoder_array)
+        self.predecoder   = Sequential(self.predecoder_array)
+
+        self.extract_args = Lambda(lambda args: tf.einsum("buao,bof->buaf", args[0], args[1]), name="extract_args")
+
+        self.to_attention  = self._to_attention(input_shape)
+        self.to_predicates = self._to_predicates(input_shape)
+
+        def preencoder_misc(x):
+            # record the mean L1 activity of the object embedding
+            def preencoder_l1(*args):
+                return K.mean(x)
+            self.metrics.append(preencoder_l1)
+            # save the object embedding for the object decoder training
+            if not hasattr(self,"pre"):
+                self.pre = x
+            return x
+
+        # main flow
+        def to_args(o_enc):
+            attention  = self.to_attention(o_enc)
+            args_enc   = self.extract_args([attention, o_enc])
+            return args_enc
+
+        return [
+            self.preencoder,
+            preencoder_misc,
+            to_args,
+            self.to_predicates,
+        ]
+
+    def _build(self, input_shape):
+        super()._build(input_shape)
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+        print ("begin visualization")
+        o          = Input(shape=input_shape, name="visualization_input")
+        o_enc      = self.preencoder(o)
+        attention  = self.to_attention(o_enc)
+        args_enc   = self.extract_args([attention, o_enc])
+        args_enc   = Reshape((self.parameters["U"]*self.parameters["A"], self.parameters["preencoder_dimention"]))(args_enc)
+        args       = self.predecoder(args_enc)
+        args       = Reshape((self.parameters["U"], self.parameters["A"], num_features))(args)
+        self.args_encoder      = Model(o, args)
+        self.attention_encoder = Model(o, attention)
+        print ("end visualization")
+
+    def encode_attention(self,data,**kwargs):
+        return self.attention_encoder.predict(data,**kwargs)
+
+    def encode_args(self,data,**kwargs):
+        return self.args_encoder.predict(data,**kwargs)
+
+    def plot(self,data,path,verbose=False):
+        self.load()
+        x = data                     # bof
+        a = self.encode_attention(x) # bnao
+        g = self.encode_args(x)      # bnaf
+        b = self.encode(x)
+        y = self.autoencode(x)
+
+        x_sorted = sort_binary(x)
+        y_sorted = sort_binary(y)
+
+        dy = ( y_sorted - x_sorted + 1)/2
+
+        _a = a.transpose(1,0,3,2) # nboa -- just for plotting purpose
+        _g = g.transpose(1,0,2,3) # nbaf
+
+        _ag = []
+        for __ag in zip(_a,_g): # nboa, nbaf
+            _ag.extend(__ag)    # [boa, baf] is added to the last
+
+        _b = b.reshape((-1,
+                        self.parameters["U"],
+                        self.parameters["P"])).transpose(0,2,1) # bnp -> bpn
+
+        images = []
+        for seq in zip(x, *_ag, _b, x, y, x_sorted, y_sorted, dy):
+            images.extend(seq)
+        from .util.plot import plot_grid
+        plot_grid(images, w=7+len(_ag), path=path, verbose=verbose)
+        return
+    pass
+
 
 
 # Transition AE + Action AE double wielding! #################################
