@@ -1122,6 +1122,11 @@ class FirstOrderSAEMixin:
             ]
 
     def _build(self, input_shape):
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+        self.parameters["O"] = num_objs
+        self.parameters["F"] = num_features
+
         super()._build(input_shape)
         self.loss = eval(self.parameters["loss"])
         if self.loss not in self.metrics:
