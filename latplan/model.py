@@ -1427,11 +1427,11 @@ class FirstOrderSAEMixin:
 
         import json
         with open(self.local("performance.json"), "w") as f:
-            json.dump(performance, f)
+            json.dump(performance, f, cls=NpEncoder)
 
         import json
         with open(self.local("parameter_count.json"), "w") as f:
-            json.dump(count_params(self.autoencoder), f)
+            json.dump(count_params(self.autoencoder), f, cls=NpEncoder)
 
         return self
 
