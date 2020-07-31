@@ -10,6 +10,8 @@ This repository contains a reimplementation of First Order State Autoencoder in 
 
 It is rebased on the latest [[https://github.com/guicho271828/latplan/][Latplan]] code base.
 
+*NEWS* : Pretrained weights are available in https://github.com/guicho271828/latplan-fosae/releases .
+
 * Setup
 
 On Ubuntu, prerequisites can be installed via launching [[./install.sh]] (It requires =sudo= several times).
@@ -67,7 +69,6 @@ By default, everything is commented out and nothing runs.
 ./train_all_contour.sh
 
 #+end_src
-
 
 * Code detail
 
