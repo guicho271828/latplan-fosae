@@ -1324,7 +1324,7 @@ class FirstOrderSAEMixin:
 
 # ICAPS 2019.
 class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, ConcreteLatentMixin, StateAE):
-    def _to_attention(self,input_shape):
+    def _build_to_attention(self,input_shape):
         num_objs     = input_shape[0]
         num_features = input_shape[1]
         return Sequential([
@@ -1339,7 +1339,7 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
                      self.parameters["A"],
                      num_objs))])
 
-    def _to_predicates(self,input_shape):
+    def _build_to_predicates(self,input_shape):
         num_objs     = input_shape[0]
         num_features = input_shape[1]
 
@@ -1372,8 +1372,8 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
 
         self.extract_args = Lambda(lambda args: tf.einsum("buao,bof->buaf", args[0], args[1]), name="extract_args")
 
-        self.to_attention  = self._to_attention(input_shape)
-        self.to_predicates = self._to_predicates(input_shape)
+        self.to_attention  = self._build_to_attention(input_shape)
+        self.to_predicates = self._build_to_predicates(input_shape)
 
         def preencoder_misc(x):
             # record the mean L1 activity of the object embedding
