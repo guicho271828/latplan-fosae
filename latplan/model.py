@@ -1095,7 +1095,7 @@ class FirstOrderSAEMixin:
                    activation=self.parameters["preencoder_output_activation"][0]),
              Reshape((num_objs, self.parameters["preencoder_dimention"])),
              skipconnection_or_add_embedding_loss,
-             self.predecoder,
+             *self.predecoder_net,
             ]
 
     def _build(self, input_shape):
@@ -1367,10 +1367,8 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
 
         self.parameters["N"] = self.parameters["U"] * self.parameters["P"]
 
-        self.preencoder_array   = self._build_preencoder(input_shape)
-        self.predecoder_array   = self._build_predecoder(input_shape)
-        self.preencoder   = Sequential(self.preencoder_array)
-        self.predecoder   = Sequential(self.predecoder_array)
+        self.preencoder_net   = self._build_preencoder(input_shape)
+        self.predecoder_net   = self._build_predecoder(input_shape)
 
         self.extract_args = Lambda(lambda args: tf.einsum("buao,bof->buaf", args[0], args[1]), name="extract_args")
 
@@ -1394,7 +1392,7 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
             return args_enc
 
         return [
-            self.preencoder,
+            *self.preencoder_net,
             preencoder_misc,
             to_args,
             self.to_predicates,
@@ -1406,7 +1404,7 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
         num_features = input_shape[1]
         print ("begin visualization")
         o          = Input(shape=input_shape, name="visualization_input")
-        o_enc      = self.preencoder(o)
+        o_enc      = Sequential(self.preencoder_net)(o)
         attention  = self.to_attention(o_enc)
         args_enc   = self.extract_args([attention, o_enc])
         args_enc   = Reshape((self.parameters["U"]*self.parameters["A"], self.parameters["preencoder_dimention"]))(args_enc)
