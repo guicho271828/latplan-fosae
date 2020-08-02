@@ -1037,7 +1037,7 @@ class TransitionAE(ConvolutionalEncoderMixin, StateAE):
 # Base code in FOSAE
 class FirstOrderSAEMixin:
     # encode each object vector into an embedding
-    def _preencoder(self,input_shape):
+    def _build_preencoder(self,input_shape):
         num_objs     = input_shape[0]
         num_features = input_shape[1]
         if ("preencoder_layers" in self.parameters) and (self.parameters["preencoder_layers"] > 0):
@@ -1054,7 +1054,7 @@ class FirstOrderSAEMixin:
             return []
 
     # decode each object vector into an embedding
-    def _predecoder(self,input_shape):
+    def _build_predecoder(self,input_shape):
         num_objs     = input_shape[0]
         num_features = input_shape[1]
         if ("preencoder_layers" in self.parameters) and (self.parameters["preencoder_layers"] > 0):
@@ -1367,8 +1367,8 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
 
         self.parameters["N"] = self.parameters["U"] * self.parameters["P"]
 
-        self.preencoder_array   = self._preencoder(input_shape)
-        self.predecoder_array   = self._predecoder(input_shape)
+        self.preencoder_array   = self._build_preencoder(input_shape)
+        self.predecoder_array   = self._build_predecoder(input_shape)
         self.preencoder   = Sequential(self.preencoder_array)
         self.predecoder   = Sequential(self.predecoder_array)
 
