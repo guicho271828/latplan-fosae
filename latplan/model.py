@@ -1327,7 +1327,7 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
     def _build_to_attention(self,input_shape):
         num_objs     = input_shape[0]
         num_features = input_shape[1]
-        return Sequential([
+        return [
             flatten,
             Dense(self.parameters["layer"], activation="relu"),
             Dropout(self.parameters["dropout"]),
@@ -1337,13 +1337,14 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
             self.build_gs(N=self.parameters["U"] * self.parameters["A"], M=num_objs),
             Reshape((self.parameters["U"],
                      self.parameters["A"],
-                     num_objs))])
+                     num_objs))
+        ]
 
     def _build_to_predicates(self,input_shape):
         num_objs     = input_shape[0]
         num_features = input_shape[1]
 
-        return Sequential([
+        return [
             Reshape((self.parameters["U"], self.parameters["A"]*self.parameters["preencoder_dimention"])),
             # filter size 1: no interactions
             # regularizer: improve interpretability (look at fewer features)
@@ -1351,7 +1352,7 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
             # Dropout(self.parameters["dropout"]),
             Convolution1D(self.parameters["P"] * 2, 1, ), # kernel_regularizer=keras.regularizers.l1(0.005)
             self.activation(),
-        ])
+        ]
 
     def build_encoder(self,input_shape):
         num_objs     = input_shape[0]
@@ -1369,11 +1370,8 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
 
         self.preencoder_net   = self._build_preencoder(input_shape)
         self.predecoder_net   = self._build_predecoder(input_shape)
-
-        self.extract_args = Lambda(lambda args: tf.einsum("buao,bof->buaf", args[0], args[1]), name="extract_args")
-
-        self.to_attention  = self._build_to_attention(input_shape)
-        self.to_predicates = self._build_to_predicates(input_shape)
+        self.to_attention_net  = self._build_to_attention(input_shape)
+        self.to_predicates_net = self._build_to_predicates(input_shape)
 
         def preencoder_misc(x):
             # record the mean L1 activity of the object embedding
@@ -1387,15 +1385,16 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
 
         # main flow
         def to_args(o_enc):
-            attention  = self.to_attention(o_enc)
-            args_enc   = self.extract_args([attention, o_enc])
+            attention  = Sequential(self.to_attention_net)(o_enc)
+            # extract args
+            args_enc   = Lambda(lambda args: tf.einsum("buao,bof->buaf", args[0], args[1]))([attention, o_enc])
             return args_enc
 
         return [
             *self.preencoder_net,
             preencoder_misc,
             to_args,
-            self.to_predicates,
+            *self.to_predicates_net,
         ]
 
     def _build_aux(self, input_shape):
@@ -1405,10 +1404,10 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
         print ("begin visualization")
         o          = Input(shape=input_shape, name="visualization_input")
         o_enc      = Sequential(self.preencoder_net)(o)
-        attention  = self.to_attention(o_enc)
-        args_enc   = self.extract_args([attention, o_enc])
+        attention  = Sequential(self.to_attention_net)(o_enc)
+        args_enc   = Lambda(lambda args: tf.einsum("buao,bof->buaf", args[0], args[1]))([attention, o_enc])
         args_enc   = Reshape((self.parameters["U"]*self.parameters["A"], self.parameters["preencoder_dimention"]))(args_enc)
-        args       = self.predecoder(args_enc)
+        args       = Sequential(self.predecoder_net)(args_enc)
         args       = Reshape((self.parameters["U"], self.parameters["A"], num_features))(args)
         self.args_encoder      = Model(o, args)
         self.attention_encoder = Model(o, attention)
