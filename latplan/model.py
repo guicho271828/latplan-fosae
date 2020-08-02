@@ -1400,8 +1400,8 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
             self.to_predicates,
         ]
 
-    def _build(self, input_shape):
-        super()._build(input_shape)
+    def _build_aux(self, input_shape):
+        super()._build_aux(input_shape)
         num_objs     = input_shape[0]
         num_features = input_shape[1]
         print ("begin visualization")
