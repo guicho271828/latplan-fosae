@@ -1035,7 +1035,7 @@ class TransitionAE(ConvolutionalEncoderMixin, StateAE):
 # First Order State AE #############################################################
 
 # Base code in FOSAE
-class FirstOrderSAEMixin:
+class BaseFirstOrderMixin:
     # encode each object vector into an embedding
     def _build_preencoder(self,input_shape):
         num_objs     = input_shape[0]
@@ -1323,7 +1323,7 @@ class FirstOrderSAEMixin:
 
 
 # ICAPS 2019.
-class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, ConcreteLatentMixin, StateAE):
+class FirstOrderSAE(BaseFirstOrderMixin, ZeroSuppressMixin, ConcreteLatentMixin, StateAE):
     def _build_to_attention(self,input_shape):
         num_objs     = input_shape[0]
         num_features = input_shape[1]
