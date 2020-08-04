@@ -97,6 +97,7 @@ def plot_autoencoding_image(ae,test,train,plotmode):
 
     ae.plot_pos_neg(test[:30],ae.local("booleans_test.png"),verbose=True,mode=plotmode)
     ae.plot_pn_decisiontree(test,ae.local("test"),verbose=True,mode=plotmode)
+    return
 
 def dump_all_actions(ae,configs,trans_fn,name="all_actions.csv",repeat=1):
     if 'dump' not in mode:

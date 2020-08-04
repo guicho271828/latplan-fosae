@@ -1272,98 +1272,10 @@ class FirstOrderSAEMixin:
         return
 
     def plot_pos_neg(self,data,path,verbose=False,examples=10,mode="puzzle"):
-        self.load()
-        if mode is "puzzle":
-            render, _ = self.puzzle_renderer()
-        else:
-            render, _ = self.blocks_renderer()
-
-        input_shape  = data.shape[1:]
-        num_objs     = input_shape[0]
-        num_features = input_shape[1]
-
-        x = data                     # bof
-        g = self.encode_args(x)      # bnaf
-        # print(g.shape)
-        sample_render = render(g[:1].reshape((self.parameters["U"], self.parameters["A"], num_features))[:1,...])
-        # print(sample_render.shape)
-        g = g.reshape((x.shape[0]*self.parameters["U"], -1)) # (bn)(af)
-        b = self.encode(x)                                             \
-                .reshape((-1, self.parameters["P"]))          \
-                .transpose((1,0))                                      \
-                .round()                                               \
-                .astype(np.uint64)                                     # p(bn)
-
-        # print(x.shape, g.shape, b.shape)
-
-        trues = []
-        falses = []
-        for p, _b in enumerate(b):
-            # _b: (bn)
-
-            from numpy.random import shuffle
-
-            canvas = np.ones((examples+1, *sample_render.shape[1:])) # +1 makes a separator
-            true = g[_b.nonzero()]
-
-            if len(true) == 0:
-                continue
-            shuffle(true)
-            true = true.reshape((-1, self.parameters["A"], num_features))[:examples]
-            canvas[:len(true), ...] = render(true)
-            trues.append(canvas)
-
-            canvas = np.ones((examples, *sample_render.shape[1:]))
-            false = g[_b==0]
-            shuffle(false)
-            false = false.reshape((-1, self.parameters["A"], num_features))[:examples]
-            canvas[:len(false), ...] = render(false)
-            falses.append(canvas)
-
-        images = []
-        for (truepic, falsepic) in zip(trues,falses): # pexyc
-            # exyc
-            images.extend(truepic) # xyc
-            images.extend(falsepic)
-        from .util.plot import plot_grid
-        plot_grid(images, w=2*examples+1, path=path, verbose=verbose)
-        return
+        pass
 
     def plot_pn_decisiontree(self,data,name,verbose=False,mode="puzzle"):
-        if mode is not "puzzle":
-            return
-
-        self.load()
-        x = data                                          # bof
-        g = self.encode_args(x)
-        b = self.encode(x)                                             \
-                .reshape((-1, self.parameters["P"]))                   \
-                .transpose((1,0))                                      \
-                .round()                                               \
-                .astype(np.uint64)                                     # p(bn) 
-
-                #                                 \
-                # .reshape((-1, self.parameters["A"]*data.shape[2])) # (bn)(af)
-
-        label = g[..., :9].argmax(axis=-1)
-        x     = g[..., 9:12].argmax(axis=-1)
-        y     = g[..., 12:15].argmax(axis=-1)
-
-        g2    = np.stack([label,x,y],axis=-1).reshape((-1,self.parameters["A"]*3))
-
-        for pn, _b in enumerate(b):
-            print("converting PN {} into a decision tree".format(pn))
-            from sklearn import tree
-            clf = tree.DecisionTreeClassifier()
-            clf = clf.fit(g2, _b)
-            import graphviz
-            dot_data = tree.export_graphviz(clf, out_file=None,
-                                            filled=True,
-                                            feature_names=["a={},f={}".format(a,f)
-                                                           for a in range(self.parameters["A"])
-                                                           for f in range(3)],)
-            graph = graphviz.Source(dot_data)
-            graph.render("{}_{}".format(name,pn)) # .pdf
+        pass
 
     def report(self,train_data,
                test_data=None,
@@ -1540,6 +1452,101 @@ class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, Concr
         from .util.plot import plot_grid
         plot_grid(images, w=7+len(_ag), path=path, verbose=verbose)
         return
+
+    def plot_pos_neg(self,data,path,verbose=False,examples=10,mode="puzzle"):
+        self.load()
+        if mode is "puzzle":
+            render, _ = self.puzzle_renderer()
+        else:
+            render, _ = self.blocks_renderer()
+
+        input_shape  = data.shape[1:]
+        num_objs     = input_shape[0]
+        num_features = input_shape[1]
+
+        x = data                     # bof
+        g = self.encode_args(x)      # bnaf
+        # print(g.shape)
+        sample_render = render(g[:1].reshape((self.parameters["U"], self.parameters["A"], num_features))[:1,...])
+        # print(sample_render.shape)
+        g = g.reshape((x.shape[0]*self.parameters["U"], -1)) # (bn)(af)
+        b = self.encode(x)                                             \
+                .reshape((-1, self.parameters["P"]))          \
+                .transpose((1,0))                                      \
+                .round()                                               \
+                .astype(np.uint64)                                     # p(bn)
+
+        # print(x.shape, g.shape, b.shape)
+
+        trues = []
+        falses = []
+        for p, _b in enumerate(b):
+            # _b: (bn)
+
+            from numpy.random import shuffle
+
+            canvas = np.ones((examples+1, *sample_render.shape[1:])) # +1 makes a separator
+            true = g[_b.nonzero()]
+
+            if len(true) == 0:
+                continue
+            shuffle(true)
+            true = true.reshape((-1, self.parameters["A"], num_features))[:examples]
+            canvas[:len(true), ...] = render(true)
+            trues.append(canvas)
+
+            canvas = np.ones((examples, *sample_render.shape[1:]))
+            false = g[_b==0]
+            shuffle(false)
+            false = false.reshape((-1, self.parameters["A"], num_features))[:examples]
+            canvas[:len(false), ...] = render(false)
+            falses.append(canvas)
+
+        images = []
+        for (truepic, falsepic) in zip(trues,falses): # pexyc
+            # exyc
+            images.extend(truepic) # xyc
+            images.extend(falsepic)
+        from .util.plot import plot_grid
+        plot_grid(images, w=2*examples+1, path=path, verbose=verbose)
+        return
+
+    def plot_pn_decisiontree(self,data,name,verbose=False,mode="puzzle"):
+        if mode is not "puzzle":
+            return
+
+        self.load()
+        x = data                                          # bof
+        g = self.encode_args(x)
+        b = self.encode(x)                                             \
+                .reshape((-1, self.parameters["P"]))                   \
+                .transpose((1,0))                                      \
+                .round()                                               \
+                .astype(np.uint64)                                     # p(bn) 
+
+                #                                 \
+                # .reshape((-1, self.parameters["A"]*data.shape[2])) # (bn)(af)
+
+        label = g[..., :9].argmax(axis=-1)
+        x     = g[..., 9:12].argmax(axis=-1)
+        y     = g[..., 12:15].argmax(axis=-1)
+
+        g2    = np.stack([label,x,y],axis=-1).reshape((-1,self.parameters["A"]*3))
+
+        for pn, _b in enumerate(b):
+            print("converting PN {} into a decision tree".format(pn))
+            from sklearn import tree
+            clf = tree.DecisionTreeClassifier()
+            clf = clf.fit(g2, _b)
+            import graphviz
+            dot_data = tree.export_graphviz(clf, out_file=None,
+                                            filled=True,
+                                            feature_names=["a={},f={}".format(a,f)
+                                                           for a in range(self.parameters["A"])
+                                                           for f in range(3)],)
+            graph = graphviz.Source(dot_data)
+            graph.render("{}_{}".format(name,pn)) # .pdf
+
     pass
 
 
