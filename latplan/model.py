@@ -1323,7 +1323,7 @@ class FirstOrderSAEMixin:
 
 
 # ICAPS 2019.
-class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, EarlyStopMixin, ConcreteLatentMixin, StateAE):
+class FirstOrderSAE(FirstOrderSAEMixin, ZeroSuppressMixin, ConcreteLatentMixin, StateAE):
     def _build_to_attention(self,input_shape):
         num_objs     = input_shape[0]
         num_features = input_shape[1]
