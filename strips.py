@@ -207,8 +207,6 @@ def puzzle(aeclass="FirstOrderAE",type='mnist',width=3,height=3,U=None,A=None,P=
 
     # recording metadata
     default_parameters["activation"]   = "self.puzzle_activation"
-    default_parameters["O"]            = 9 # object ID
-    default_parameters["F"]            = 6 # object features
     parameters["preencoder_dimension"] = [0] # disable object embedding
     parameters["preencoder_layers"]    = [0.0] # disable object embedding
     parameters["preencoder_l1"]        = [0.0] # disable object embedding
